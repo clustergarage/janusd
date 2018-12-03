@@ -35,8 +35,8 @@
 static void process_fanotify_events(const int pid, int fd, bool allow);
 void add_fanotify_mark(const int fd, const char *path, const uint32_t mntflags,
     const uint32_t mask, const uint64_t mntmask);
-int start_fanotify_watcher(const int pid, const int sid, unsigned int allowc, char *allow[],
+int start_fanotify_guard(const int pid, const int sid, unsigned int allowc, char *allow[],
     unsigned int denyc, char *deny[], uint32_t mask, int processevtfd);
-void send_watcher_kill_signal(int processfd);
+void send_guard_kill_signal(int processfd);
 
 #endif

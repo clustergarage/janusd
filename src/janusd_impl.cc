@@ -51,17 +51,17 @@ extern "C" {
 
 namespace janusd {
 /**
- * CreateWatch is responsible for creating (or updating) an janus watcher. Find
+ * CreateGuard is responsible for creating (or updating) a janus guard. Find
  * list of PIDs from the request's container IDs list. With the list of PIDs,
- * create `fanotify` watchers by spawning an janusnotify process that handles
- * the filesystem-level instructions.
+ * create `fanotify` guards by spawning a janusnotify process that handles the
+ * filesystem-level instructions.
  *
  * @param context
  * @param request
  * @param response
  * @return
  */
-grpc::Status JanusdImpl::CreateWatch(grpc::ServerContext *context [[maybe_unused]], const janus::JanusdConfig *request,
+grpc::Status JanusdImpl::CreateGuard(grpc::ServerContext *context [[maybe_unused]], const janus::JanusdConfig *request,
     janus::JanusdHandle *response) {
 
     auto pids = getPidsFromRequest(std::make_shared<janus::JanusdConfig>(*request));
@@ -69,21 +69,21 @@ grpc::Status JanusdImpl::CreateWatch(grpc::ServerContext *context [[maybe_unused
         return grpc::Status::CANCELLED;
     }
 
-    // Find existing watcher by pid in case we need to update
-    // `fanotify_mark` is designed to both add and modify depending on if a fd
-    // exists already for this path.
-    auto watcher = findJanusdWatcherByPids(request->nodename(), pids);
-    LOG(INFO) << (watcher == nullptr ? "Starting" : "Updating") << " `fanotify` watcher ("
+    // Find existing guard by pid in case we need to update `fanotify_mark` is
+    // designed to both add and modify depending on if a fd exists already for
+    // this path.
+    auto guard = findJanusdGuardByPids(request->nodename(), pids);
+    LOG(INFO) << (guard == nullptr ? "Starting" : "Updating") << " `fanotify` guard ("
         << request->podname() << ":" << request->nodename() << ")";
-    if (watcher != nullptr) {
-        // Stop existing watcher polling.
-        sendKillSignalToWatcher(watcher);
+    if (guard != nullptr) {
+        // Stop existing guard polling.
+        sendKillSignalToGuard(guard);
 
         // Wait for all processeventfd to be cleared. This indicates that the
         // fanotify threads are finished and cleaned up.
         std::unique_lock<std::mutex> lock(mux_);
         cv_.wait_until(lock, std::chrono::system_clock::now() + std::chrono::seconds(2), [=] {
-            return watcher->processeventfd().empty();
+            return guard->processeventfd().empty();
         });
     }
 
@@ -92,21 +92,22 @@ grpc::Status JanusdImpl::CreateWatch(grpc::ServerContext *context [[maybe_unused
 
     for_each(pids.cbegin(), pids.cend(), [&](const int pid) {
         int i = 0;
-        for_each(request->subject().cbegin(), request->subject().cend(), [&](const janus::JanusWatcherSubject subject) {
-            // @TODO: Check if any watchers are started, if not, don't add to response.
-            createFanotifyWatcher(response->nodename(), response->podname(), std::make_shared<janus::JanusWatcherSubject>(subject),
+        for_each(request->subject().cbegin(), request->subject().cend(), [&](const janus::JanusGuardSubject subject) {
+            // @TODO: Check if any guards are started, if not, don't add to
+            // response.
+            createFanotifyGuard(response->nodename(), response->podname(), std::make_shared<janus::JanusGuardSubject>(subject),
                 pid, i, response->mutable_processeventfd());
             ++i;
         });
         response->add_pid(pid);
     });
 
-    if (watcher == nullptr) {
-        // Store new watcher.
-        watchers_.push_back(std::make_shared<janus::JanusdHandle>(*response));
+    if (guard == nullptr) {
+        // Store new guard.
+        guards_.push_back(std::make_shared<janus::JanusdHandle>(*response));
     } else {
         std::for_each(response->processeventfd().cbegin(), response->processeventfd().cend(), [&](const int processfd) {
-            watcher->add_processeventfd(processfd);
+            guard->add_processeventfd(processfd);
         });
     }
 
@@ -114,44 +115,44 @@ grpc::Status JanusdImpl::CreateWatch(grpc::ServerContext *context [[maybe_unused
 }
 
 /**
- * DestroyWatch is responsible for deleting an janus watcher. Send kill signal
- * to the janusnotify poller to stop that child process.
+ * DestroyGuard is responsible for deleting a janus guard. Send kill signal to
+ * the janusnotify poller to stop that child process.
  *
  * @param context
  * @param request
  * @param response
  * @return
  */
-grpc::Status JanusdImpl::DestroyWatch(grpc::ServerContext *context [[maybe_unused]], const janus::JanusdConfig *request,
+grpc::Status JanusdImpl::DestroyGuard(grpc::ServerContext *context [[maybe_unused]], const janus::JanusdConfig *request,
     janus::Empty *response [[maybe_unused]]) {
 
-    LOG(INFO) << "Stopping `fanotify` watcher (" << request->podname() << ":" << request->nodename() << ")";
+    LOG(INFO) << "Stopping `fanotify` guard (" << request->podname() << ":" << request->nodename() << ")";
 
-    auto watcher = findJanusdWatcherByPids(request->nodename(), std::vector<int>(request->pid().cbegin(), request->pid().cend()));
-    if (watcher != nullptr) {
-        // Stop existing watcher polling.
-        sendKillSignalToWatcher(watcher);
+    auto guard = findJanusdGuardByPids(request->nodename(), std::vector<int>(request->pid().cbegin(), request->pid().cend()));
+    if (guard != nullptr) {
+        // Stop existing guard polling.
+        sendKillSignalToGuard(guard);
     }
-    watchers_.erase(remove(watchers_.begin(), watchers_.end(), watcher), watchers_.end());
+    guards_.erase(remove(guards_.begin(), guards_.end(), guard), guards_.end());
 
     return grpc::Status::OK;
 }
 
 /**
- * GetWatchState periodically gets called by the Kubernetes controller and is
- * responsible for gathering the current watcher state to send back so the
- * controller can reconcile if any watchers need to be added or destroyed.
+ * GetGuardState periodically gets called by the Kubernetes controller and is
+ * responsible for gathering the current guard state to send back so the
+ * controller can reconcile if any guards need to be added or destroyed.
  *
  * @param context
  * @param request
  * @param writer
  * @return
  */
-grpc::Status JanusdImpl::GetWatchState(grpc::ServerContext *context [[maybe_unused]], const janus::Empty *request [[maybe_unused]],
+grpc::Status JanusdImpl::GetGuardState(grpc::ServerContext *context [[maybe_unused]], const janus::Empty *request [[maybe_unused]],
     grpc::ServerWriter<janus::JanusdHandle> *writer) {
 
-    std::for_each(watchers_.cbegin(), watchers_.cend(), [&](const std::shared_ptr<janus::JanusdHandle> watcher) {
-        if (!writer->Write(*watcher)) {
+    std::for_each(guards_.cbegin(), guards_.cend(), [&](const std::shared_ptr<janus::JanusdHandle> guard) {
+        if (!writer->Write(*guard)) {
             // Broken stream.
         }
     });
@@ -178,23 +179,23 @@ std::vector<int> JanusdImpl::getPidsFromRequest(std::shared_ptr<janus::JanusdCon
 }
 
 /**
- * Returns stored watcher that pertains to a list of PIDs on a specific node.
+ * Returns stored guard that pertains to a list of PIDs on a specific node.
  *
  * @param nodeName
  * @param pids
  * @return
  */
-std::shared_ptr<janus::JanusdHandle> JanusdImpl::findJanusdWatcherByPids(const std::string nodeName, const std::vector<int> pids) {
-    auto it = find_if(watchers_.cbegin(), watchers_.cend(), [&](std::shared_ptr<janus::JanusdHandle> watcher) {
+std::shared_ptr<janus::JanusdHandle> JanusdImpl::findJanusdGuardByPids(const std::string nodeName, const std::vector<int> pids) {
+    auto it = find_if(guards_.cbegin(), guards_.cend(), [&](std::shared_ptr<janus::JanusdHandle> guard) {
         bool foundPid = false;
         for (const auto &pid : pids) {
-            auto watcherPid = std::find_if(watcher->pid().cbegin(), watcher->pid().cend(),
+            auto guardPid = std::find_if(guard->pid().cbegin(), guard->pid().cend(),
                 [&](int p) { return p == pid; });
-            foundPid = watcherPid != watcher->pid().cend();
+            foundPid = guardPid != guard->pid().cend();
         }
-        return watcher->nodename() == nodeName && foundPid;
+        return guard->nodename() == nodeName && foundPid;
     });
-    if (it != watchers_.cend()) {
+    if (it != guards_.cend()) {
         return *it;
     }
     return nullptr;
@@ -232,7 +233,7 @@ char **JanusdImpl::getPathArrayFromVector(const int pid, const google::protobuf:
  * @param subject
  * @return
  */
-uint32_t JanusdImpl::getEventMaskFromSubject(std::shared_ptr<janus::JanusWatcherSubject> subject) {
+uint32_t JanusdImpl::getEventMaskFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject) {
     uint32_t mask = 0;
     std::for_each(subject->event().cbegin(), subject->event().cend(), [&](std::string event) {
         const char *evt = event.c_str();
@@ -244,12 +245,12 @@ uint32_t JanusdImpl::getEventMaskFromSubject(std::shared_ptr<janus::JanusWatcher
 }
 
 /**
- * Create child processes as background threads for spawning an janusnotify
- * watcher. We will create an anonymous pipe used to communicate to this
+ * Create child processes as background threads for spawning a janusnotify
+ * guard. We will create an anonymous pipe used to communicate to this
  * background thread later from this implementation; in the case of
- * updating/deleting an existing watcher. An additional cleanup thread is
- * created to specify removing the anonymous pipe in the case of an error
- * returned by the janusnotify poller.
+ * updating/deleting an existing guard. An additional cleanup thread is created
+ * to specify removing the anonymous pipe in the case of an error returned by
+ * the janusnotify poller.
  *
  * @param nodeName
  * @param podName
@@ -258,18 +259,18 @@ uint32_t JanusdImpl::getEventMaskFromSubject(std::shared_ptr<janus::JanusWatcher
  * @param sid
  * @param eventProcessfds
  */
-void JanusdImpl::createFanotifyWatcher(const std::string nodeName, const std::string podName,
-    std::shared_ptr<janus::JanusWatcherSubject> subject, const int pid, const int sid,
+void JanusdImpl::createFanotifyGuard(const std::string nodeName, const std::string podName,
+    std::shared_ptr<janus::JanusGuardSubject> subject, const int pid, const int sid,
     google::protobuf::RepeatedField<google::protobuf::int32> *eventProcessfds) {
 
-    // Create anonymous pipe to communicate with `fanotify` watcher.
+    // Create anonymous pipe to communicate with `fanotify` guard.
     const int processfd = eventfd(0, EFD_CLOEXEC);
     if (processfd == EOF) {
         return;
     }
     eventProcessfds->Add(processfd);
 
-    std::packaged_task<int(int, int, unsigned int, char **, unsigned int, char **, uint32_t, int)> task(start_fanotify_watcher);
+    std::packaged_task<int(int, int, unsigned int, char **, unsigned int, char **, uint32_t, int)> task(start_fanotify_guard);
     std::shared_future<int> result(task.get_future());
     std::thread taskThread(std::move(task), pid, sid, subject->allow_size(), getPathArrayFromVector(pid, subject->allow()),
         subject->deny_size(), getPathArrayFromVector(pid, subject->deny()), getEventMaskFromSubject(subject), processfd);
@@ -283,9 +284,9 @@ void JanusdImpl::createFanotifyWatcher(const std::string nodeName, const std::st
     std::thread cleanupThread([=](std::shared_future<int> res) mutable {
         res.wait();
         if (res.valid()) {
-            auto watcher = findJanusdWatcherByPids(nodeName, std::vector<int>{pid});
-            if (watcher != nullptr) {
-                eraseEventProcessfd(watcher->mutable_processeventfd(), processfd);
+            auto guard = findJanusdGuardByPids(nodeName, std::vector<int>{pid});
+            if (guard != nullptr) {
+                eraseEventProcessfd(guard->mutable_processeventfd(), processfd);
                 // Notify the `condition_variable` of changes.
                 cv_.notify_one();
             }
@@ -297,12 +298,12 @@ void JanusdImpl::createFanotifyWatcher(const std::string nodeName, const std::st
 /**
  * Sends a message over the anonymous pipe to stop the janusnotify poller.
  *
- * @param watcher
+ * @param guard
  */
-void JanusdImpl::sendKillSignalToWatcher(std::shared_ptr<janus::JanusdHandle> watcher) {
-    // Kill existing watcher polls.
-    std::for_each(watcher->processeventfd().cbegin(), watcher->processeventfd().cend(), [&](const int processfd) {
-        send_watcher_kill_signal(processfd);
+void JanusdImpl::sendKillSignalToGuard(std::shared_ptr<janus::JanusdHandle> guard) {
+    // Kill existing guard polls.
+    std::for_each(guard->processeventfd().cbegin(), guard->processeventfd().cend(), [&](const int processfd) {
+        send_guard_kill_signal(processfd);
     });
 }
 

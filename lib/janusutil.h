@@ -30,7 +30,7 @@
 #include <unistd.h>
 
 #ifndef DEBUG
-#define DEBUG 1
+#define DEBUG 0
 #endif
 
 void get_ppid(const pid_t pid, pid_t *ppid);

@@ -112,16 +112,16 @@ static void process_fanotify_events(const int pid, int fd, bool allow) {
                     (metadata->mask & FAN_ACCESS_PERM)) {
                     response.fd = metadata->fd;
 
-					// Get the callee's parent PID to compare with passed-in
-					// PID of this process being watched.
+                    // Get the callee's parent PID to compare with passed-in
+                    // PID of this process being guarded.
                     int ppid;
-					get_ppid(metadata->pid, &ppid);
+                    get_ppid(metadata->pid, &ppid);
 
-					// If `pid` is the same as the callee `metadata->pid`,
-					// then always allow.
-					//
-					// @TODO: Make this an optional setting? Or have a
-					// whitelist of allowed callee processes?
+                    // If `pid` is the same as the callee `metadata->pid`,
+                    // then always allow.
+                    //
+                    // @TODO: Make this an optional setting? Or have a
+                    // whitelist of allowed callee processes?
                     if (metadata->pid == pid ||
                         ppid == pid) {
                         response.response = FAN_ALLOW;
@@ -152,7 +152,7 @@ static void process_fanotify_events(const int pid, int fd, bool allow) {
                     fflush(stdout);
 #if DEBUG
                     printf("  pid = %d\n", pid);
-					printf("  callee = %d; ppid = %d\n", metadata->pid, ppid);
+                    printf("  callee = %d; ppid = %d\n", metadata->pid, ppid);
                     fflush(stdout);
 #endif
                 }
@@ -169,7 +169,7 @@ closemetafd:
 }
 
 /**
- * Add `path` to the watch list of the `fanotify` file descriptor.
+ * Add `path` to the guard list of the `fanotify` file descriptor.
  *
  * @param fd
  * @param path
@@ -193,8 +193,8 @@ void add_fanotify_mark(const int fd, const char *path, const uint32_t mntflags,
 }
 
 /**
- * Starts the `fanotify` watcher process. Acts as the `main` function if this
- * was a standalong program. It is called from the main implementation of this
+ * Starts the `fanotify` guard process. Acts as the `main` function if this was
+ * a standalone program. It is called from the main implementation of this
  * daemon in a new thread each time it is invoked. Once started up, it marks
  * the given filesystem objects for allow/deny events, and loops infinitely
  * waiting for new `fanotify` events until it receives a kill signal.
@@ -209,7 +209,7 @@ void add_fanotify_mark(const int fd, const char *path, const uint32_t mntflags,
  * @param processevtfd
  * @return
  */
-int start_fanotify_watcher(const int pid, const int sid, unsigned int allowc, char *allow[],
+int start_fanotify_guard(const int pid, const int sid, unsigned int allowc, char *allow[],
     unsigned int denyc, char *deny[], uint32_t mask, int processevtfd) {
 
     int allowfd, denyfd, pollc;
@@ -312,11 +312,11 @@ exit:
 
 /**
  * Sends the custom kill signal to break out of the `ppoll` loop that is
- * listening for active `fanotify` watch events.
+ * listening for active `fanotify` guard events.
  *
  * @param processfd
  */
-void send_watcher_kill_signal(int processfd) {
+void send_guard_kill_signal(int processfd) {
     uint64_t value = JANUSNOTIFY_KILL;
     if (write(processfd, &value, sizeof(value)) == EOF) {
 #if DEBUG

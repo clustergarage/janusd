@@ -37,18 +37,18 @@ public:
     explicit JanusdImpl() = default;
     ~JanusdImpl() final = default;
 
-    grpc::Status CreateWatch(grpc::ServerContext *context, const janus::JanusdConfig *request, janus::JanusdHandle *response) override;
-    grpc::Status DestroyWatch(grpc::ServerContext *context, const janus::JanusdConfig *request, janus::Empty *response) override;
-    grpc::Status GetWatchState(grpc::ServerContext *context, const janus::Empty *request, grpc::ServerWriter<janus::JanusdHandle> *writer) override;
+    grpc::Status CreateGuard(grpc::ServerContext *context, const janus::JanusdConfig *request, janus::JanusdHandle *response) override;
+    grpc::Status DestroyGuard(grpc::ServerContext *context, const janus::JanusdConfig *request, janus::Empty *response) override;
+    grpc::Status GetGuardState(grpc::ServerContext *context, const janus::Empty *request, grpc::ServerWriter<janus::JanusdHandle> *writer) override;
 
 private:
     std::vector<int> getPidsFromRequest(std::shared_ptr<janus::JanusdConfig> request);
-    std::shared_ptr<janus::JanusdHandle> findJanusdWatcherByPids(std::string nodeName, std::vector<int> pids);
+    std::shared_ptr<janus::JanusdHandle> findJanusdGuardByPids(std::string nodeName, std::vector<int> pids);
     char **getPathArrayFromVector(int pid, const google::protobuf::RepeatedPtrField<std::string> &vec);
-    uint32_t getEventMaskFromSubject(std::shared_ptr<janus::JanusWatcherSubject> subject);
-    void createFanotifyWatcher(std::string nodeName, std::string podName, std::shared_ptr<janus::JanusWatcherSubject> subject,
+    uint32_t getEventMaskFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject);
+    void createFanotifyGuard(std::string nodeName, std::string podName, std::shared_ptr<janus::JanusGuardSubject> subject,
         int pid, int sid, google::protobuf::RepeatedField<google::protobuf::int32> *procFds);
-    void sendKillSignalToWatcher(std::shared_ptr<janus::JanusdHandle> watcher);
+    void sendKillSignalToGuard(std::shared_ptr<janus::JanusdHandle> guard);
     void eraseEventProcessfd(google::protobuf::RepeatedField<google::protobuf::int32> *eventProcessfds, int processfd);
 
     /**
@@ -62,7 +62,7 @@ private:
         clustergarage::container::Util::eraseSubstr(containerId, prefix + "://");
     }
 
-    std::vector<std::shared_ptr<janus::JanusdHandle>> watchers_;
+    std::vector<std::shared_ptr<janus::JanusdHandle>> guards_;
     std::condition_variable cv_;
     std::mutex mux_;
 };

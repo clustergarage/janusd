@@ -6,11 +6,11 @@ This repository implements a daemon process responsible for maintaining a collec
 
 ## Purpose
 
-This daemon is able to perform a series of flexible tasks combined with a rich set of configurations around watching inode events:
+This daemon is able to perform a series of flexible tasks combined with a rich set of configurations around guarding inode events:
 
 - Serves a gRPC endpoint running on each node, that can be communicated with by the Kubernetes [janus-controller](https://github.com/clustergarage/janus-controller).
 - Extends out-of-the-box `fanotify` with recursive file tree options.
-- Handles multi-threaded operations of creating watches, handling event stream message and logging them in a common, configurable way.
+- Handles multi-threaded operations of creating guards, handling event stream message and logging them in a common, configurable way.
 - Reports its current state back to the controller, which syncs current state with desired.
 - Perform health checks for readiness and liveness probes in Kubernetes.
 
@@ -62,4 +62,4 @@ sudo ./janusd -tls \
   -tlskeyfile /etc/ssl/key.pem
 ```
 
-**Warning**: When running the daemon out-of-cluster in a VM-based Kubernetes context, it will fail to locate the PID from the container ID through numerous cgroup checks and will be unable to start any watchers. The solution to get around this is to either run a non-VM-based local Kubernetes, or to run as a pod inside the cluster. The configurations in order to do the latter option are located in the [janus](https://github.com/clustergarage/janus) repo.
+**Warning**: When running the daemon out-of-cluster in a VM-based Kubernetes context, it will fail to locate the PID from the container ID through numerous cgroup checks and will be unable to start any guards. The solution to get around this is to either run a non-VM-based local Kubernetes, or to run as a pod inside the cluster. The configurations in order to do the latter option are located in the [janus](https://github.com/clustergarage/janus) repo.
