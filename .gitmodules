@@ -1,0 +1,3 @@
+[submodule "janus-proto"]
+	path = janus-proto
+	url = https://github.com/clustergarage/janus-proto
