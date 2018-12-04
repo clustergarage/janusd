@@ -159,6 +159,19 @@ ExternalProject_Add(glog
 set(GLOG_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/glog/include)
 set(GLOG_LIBRARY ${CMAKE_CURRENT_BINARY_DIR}/glog/lib/libglog.a)
 
+# Builds fmt project from the git repo.
+ExternalProject_Add(fmt
+  PREFIX fmt
+  GIT_REPOSITORY https://github.com/fmtlib/fmt
+  GIT_TAG 5.2.1
+  CMAKE_CACHE_ARGS
+    -DFMT_DOC:BOOL=OFF
+    -DFMT_TEST:BOOL=OFF
+    -DCMAKE_INSTALL_PREFIX:PATH=<INSTALL_DIR>
+)
+set(FMT_INCLUDE_DIR ${CMAKE_CURRENT_BINARY_DIR}/fmt/include)
+set(FMT_LIBRARY ${CMAKE_CURRENT_BINARY_DIR}/fmt/lib/libfmt.a)
+
 # Builds libcontainer project from the git repo.
 ExternalProject_Add(libcontainer
   PREFIX libcontainer

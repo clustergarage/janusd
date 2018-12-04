@@ -32,6 +32,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <sys/fanotify.h>
 #include <unistd.h>
 
@@ -44,11 +45,11 @@
  * @param fd
  * @param allow
  */
-static void process_fanotify_events(const int pid, int fd, bool allow) {
+static void process_fanotify_events(const int pid, const int sid, int fd, bool allow, void(*logfn)(struct janusguard_event *)) {
     const struct fanotify_event_metadata *metadata;
     struct fanotify_event_metadata buf[200];
     struct fanotify_response response;
-    char path[PATH_MAX], procfdpath[PATH_MAX];
+    char procfdpath[PATH_MAX];
     ssize_t len, pathlen;
     struct sigaction sa;
 
@@ -128,28 +129,35 @@ static void process_fanotify_events(const int pid, int fd, bool allow) {
                     } else {
                         response.response = allow ? FAN_ALLOW : FAN_DENY;
                     }
-                    write(fd, &response, sizeof(struct fanotify_response));
+                    ssize_t writelen = sizeof(struct fanotify_response);
+                    if (write(fd, &response, writelen) != writelen) {
+#if DEBUG
+                        perror("write");
+#endif
+                    }
+
+					struct janusguard_event jgevent = {
+						.pid = pid,
+						.sid = sid,
+						.event_mask = metadata->mask,
+						.is_dir = (bool)(metadata->mask & FAN_ONDIR),
+						.allow = allow
+					};
 
                     // Retrieve and print pathname of the accessed file.
                     snprintf(procfdpath, sizeof(procfdpath), "/proc/self/fd/%d", metadata->fd);
-                    pathlen = readlink(procfdpath, path, sizeof(path) - 1);
+                    pathlen = readlink(procfdpath, jgevent.path_name, sizeof(jgevent.path_name) - 1);
                     if (pathlen == EOF) {
 #if DEBUG
                         perror("readlink");
 #endif
                         goto closemetafd;
                     }
-                    path[pathlen] = '\0';
+                    jgevent.path_name[pathlen] = '\0';
 
-                    printf("[%s] ", response.response == FAN_ALLOW ? "ALLOW" : "DENY");
-                    if (metadata->mask & FAN_OPEN_PERM) {
-                        printf("FAN_OPEN_PERM: ");
-                    }
-                    if (metadata->mask & FAN_ACCESS_PERM) {
-                        printf("FAN_ACCESS_PERM: ");
-                    }
-                    printf("path = %s\n", path);
-                    fflush(stdout);
+					// Call JanusdImpl log function passed into this guard.
+					logfn(&jgevent);
+
 #if DEBUG
                     printf("  pid = %d\n", pid);
                     printf("  callee = %d; ppid = %d\n", metadata->pid, ppid);
@@ -210,7 +218,7 @@ void add_fanotify_mark(const int fd, const char *path, const uint32_t mntflags,
  * @return
  */
 int start_fanotify_guard(const int pid, const int sid, unsigned int allowc, char *allow[],
-    unsigned int denyc, char *deny[], uint32_t mask, int processevtfd) {
+    unsigned int denyc, char *deny[], uint32_t mask, int processevtfd, void (*logfn)(struct janusguard_event *)) {
 
     int allowfd, denyfd, pollc;
     nfds_t nfds;
@@ -282,11 +290,11 @@ int start_fanotify_guard(const int pid, const int sid, unsigned int allowc, char
         if (pollc > 0) {
             if (fds[0].revents & POLLIN) {
                 // `fanotify` ALLOW events are available.
-                process_fanotify_events(pid, allowfd, true);
+                process_fanotify_events(pid, sid, allowfd, true, logfn);
             }
             if (fds[1].revents & POLLIN) {
                 // `fanotify` DENY events are available.
-                process_fanotify_events(pid, denyfd, false);
+                process_fanotify_events(pid, sid, denyfd, false, logfn);
             }
 
             if (fds[2].revents & POLLIN) {

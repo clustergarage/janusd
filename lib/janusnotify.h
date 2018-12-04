@@ -32,11 +32,18 @@
 
 #define JANUSNOTIFY_KILL SIGKILL
 
-static void process_fanotify_events(const int pid, int fd, bool allow);
+struct janusguard_event {
+    int pid, sid;
+    int32_t event_mask;
+    char path_name[PATH_MAX];
+	bool is_dir, allow;
+};
+
+static void process_fanotify_events(const int pid, const int sid, int fd, bool allow, void(*logfn)(struct janusguard_event *));
 void add_fanotify_mark(const int fd, const char *path, const uint32_t mntflags,
     const uint32_t mask, const uint64_t mntmask);
 int start_fanotify_guard(const int pid, const int sid, unsigned int allowc, char *allow[],
-    unsigned int denyc, char *deny[], uint32_t mask, int processevtfd);
+    unsigned int denyc, char *deny[], uint32_t mask, int processevtfd, void (*logfn)(struct janusguard_event *));
 void send_guard_kill_signal(int processfd);
 
 #endif

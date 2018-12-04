@@ -68,4 +68,12 @@ private:
 };
 } // namespace janusd
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+    void logJanusGuardEvent(struct janusguard_event *);
+#ifdef __cplusplus
+}; // extern "C"
+#endif
+
 #endif
