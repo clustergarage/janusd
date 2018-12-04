@@ -5,7 +5,7 @@ include(ExternalProject)
 
 set(CMAKE_CXX_FLAGS ${CMAKE_CXX_FLAGS} -std=c++17)
 set(CMAKE_EXE_LINKER_FLAGS -static)
-set(CMAKE_BUILD_TYPE Debug)
+set(CMAKE_BUILD_TYPE Release)
 
 find_package(Threads REQUIRED)
 find_library(RT_LIBRARY NAMES librt.a rt REQUIRED)
@@ -192,7 +192,7 @@ set(JANUS_GRPC_SRCS ${PROJECT_SOURCE_DIR}/janus-proto/c++/janus.grpc.pb.cc
 add_executable(janusd
   src/janusd_server.cc
   src/janusd_impl.cc
-  #src/janusd_auth.cc
+  src/janusd_auth.cc
   src/health_impl.cc
   ${JANUS_PROTO_SRCS}
   ${JANUS_GRPC_SRCS}
@@ -220,5 +220,5 @@ target_link_libraries(janusd
 )
 
 # Strip all symbols from built binary.
-#add_custom_command(TARGET janusd POST_BUILD
-#  COMMAND strip -s $<TARGET_FILE:janusd>)
+add_custom_command(TARGET janusd POST_BUILD
+  COMMAND strip -s $<TARGET_FILE:janusd>)
