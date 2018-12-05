@@ -25,13 +25,28 @@
 #ifndef __JANUS_UTIL__
 #define __JANUS_UTIL__
 
-#include <mqueue.h>
+#include <limits.h>
 #include <stdint.h>
 #include <unistd.h>
 
 #ifndef DEBUG
 #define DEBUG 0
 #endif
+
+struct janusguard {
+    int pid, sid;          // PID, Subject ID.
+    char *nodename, *podname;
+    int allowfd, denyfd;   // `fanotify` file descriptor.
+    int *wd;               // Array of watch descriptors (-1 if slot unused).
+    unsigned int allowc;   // Cached path count, including recursive traversal.
+    char **allow;          // Cached path name(s), including recursive traversal.
+    unsigned int denyc;    // Ignore path pattern count.
+    char **deny;           // Ignore path patterns.
+    uint32_t event_mask;   // Event mask for `fanotify`.
+    unsigned int flags, evtflags, mntflags;
+    uint64_t mntmask;
+    int processevtfd;      // Anonymous pipe to send watch kill signal.
+};
 
 void get_ppid(const pid_t pid, pid_t *ppid);
 
