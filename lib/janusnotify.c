@@ -52,7 +52,7 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
     const struct fanotify_event_metadata *metadata;
     struct fanotify_event_metadata buf[200];
     struct fanotify_response response;
-    char procpath[PATH_MAX], procfdpath[PATH_MAX];
+    char procpath[PATH_MAX + 16], procfdpath[PATH_MAX];
     ssize_t len, pathlen;
     struct sigaction sa;
     struct stat sb;
@@ -122,16 +122,17 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
                     int ppid;
                     get_ppid(metadata->pid, &ppid);
 
-                    // If `pid` is the same as the callee `metadata->pid`,
-                    // then always allow.
-                    //
-                    // @TODO: Make this an optional setting? Or have a
-                    // whitelist of allowed callee processes?
-                    if (metadata->pid == guard->pid ||
-                        ppid == guard->pid) {
-                        response.response = FAN_ALLOW; // FAN_AUDIT
+                    // If `pid` is the same as the callee `metadata->pid`, then
+                    // always allow.
+                    if (guard->auto_allow_owner &&
+                        (metadata->pid == guard->pid ||
+                        ppid == guard->pid)) {
+                        response.response = FAN_ALLOW;
                     } else {
-                        response.response = allow ? FAN_ALLOW : FAN_DENY; // FAN_AUDIT
+                        response.response = allow ? FAN_ALLOW : FAN_DENY;
+                    }
+                    if (guard->audit) {
+                        response.response |= FAN_AUDIT;
                     }
                     ssize_t writelen = sizeof(struct fanotify_response);
                     if (write(fd, &response, writelen) != writelen) {
@@ -233,8 +234,8 @@ void add_fanotify_mark(const struct janusguard *guard, const int fd, const char 
  * @return
  */
 int start_fanotify_guard(char *name, const int pid, const int sid, char *nodename, char *podname, unsigned int allowc, char *allow[],
-    unsigned int denyc, char *deny[], uint32_t mask, bool onlydir, int processevtfd, char *tags, char *logformat,
-    void (*logfn)(struct janusguard_event *)) {
+    unsigned int denyc, char *deny[], uint32_t mask, bool onlydir, bool autoallowowner, bool audit, int processevtfd, char *tags,
+    char *logformat, void (*logfn)(struct janusguard_event *)) {
 
     int pollc;
     nfds_t nfds;
@@ -255,6 +256,8 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
         .deny = deny,
         .event_mask = mask,
         .only_dir = onlydir,
+        .auto_allow_owner = autoallowowner,
+        .audit = audit,
         .processevtfd = processevtfd,
         .tags = tags,
         .log_format = logformat
@@ -262,7 +265,10 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
 
     // @TODO: make configurable
     guard.flags = FAN_CLOEXEC | FAN_NONBLOCK | FAN_UNLIMITED_QUEUE |
-        FAN_UNLIMITED_MARKS | FAN_CLASS_CONTENT; // FAN_ENABLE_AUDIT | FAN_CLASS_PRE_CONTENT
+        FAN_UNLIMITED_MARKS | FAN_CLASS_CONTENT; // | FAN_CLASS_PRE_CONTENT
+    if (guard.audit) {
+        guard.flags |= FAN_ENABLE_AUDIT;
+    }
     guard.evt_flags = O_RDONLY | O_NONBLOCK | O_LARGEFILE;
     guard.mnt_flags = 0; // FAN_MARK_MOUNT
     if (guard.only_dir) {

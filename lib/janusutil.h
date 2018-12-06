@@ -49,6 +49,8 @@ struct janusguard {
     uint32_t event_mask;                    // Event mask for `fanotify_mark`.
     uint64_t mnt_mask;                      // Optional mount mask for `fanotify_mark`.
     bool only_dir;                          // Flag to watch only directories.
+    bool auto_allow_owner;                  // Flag to automatically allow owner pid,ppid permission.
+    bool audit;                             // Flag to send events to kernel audit logs.
     int processevtfd;                       // Anonymous pipe to send watch kill signal.
     const char *tags;                       // Custom tags for printing JanusGuard event.
     const char *log_format;                 // Custom logging format for printing JanusGuard event.
