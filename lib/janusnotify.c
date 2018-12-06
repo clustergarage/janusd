@@ -162,7 +162,7 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
                     snprintf(procpath, sizeof(procpath), "/proc/%d/root%s", metadata->pid, jgevent.path_name);
                     if (lstat(procpath, &sb) == EOF) {
 #if DEBUG
-                        fprintf(stderr, "`lstat` failed on '%s'\n", path);
+                        fprintf(stderr, "`lstat` failed on '%s'\n", procpath);
                         perror("lstat");
 #endif
                     }
@@ -227,12 +227,13 @@ void add_fanotify_mark(const struct janusguard *guard, const int fd, const char 
  * @param denyc
  * @param deny
  * @param mask
+ * @param only_dir
  * @param processevtfd
  * @param logfn
  * @return
  */
 int start_fanotify_guard(char *name, const int pid, const int sid, char *nodename, char *podname, unsigned int allowc, char *allow[],
-    unsigned int denyc, char *deny[], uint32_t mask, int processevtfd, char *tags, char *logformat,
+    unsigned int denyc, char *deny[], uint32_t mask, bool onlydir, int processevtfd, char *tags, char *logformat,
     void (*logfn)(struct janusguard_event *)) {
 
     int pollc;
@@ -253,6 +254,7 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
         .denyc = denyc,
         .deny = deny,
         .event_mask = mask,
+        .only_dir = onlydir,
         .processevtfd = processevtfd,
         .tags = tags,
         .log_format = logformat
@@ -263,6 +265,9 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
         FAN_UNLIMITED_MARKS | FAN_CLASS_CONTENT; // FAN_ENABLE_AUDIT | FAN_CLASS_PRE_CONTENT
     guard.evt_flags = O_RDONLY | O_NONBLOCK | O_LARGEFILE;
     guard.mnt_flags = 0; // FAN_MARK_MOUNT
+    if (guard.only_dir) {
+        guard.mnt_flags |= FAN_MARK_ONLYDIR;
+    }
     guard.mnt_mask = FAN_ONDIR | FAN_EVENT_ON_CHILD;
 
 #if DEBUG
@@ -347,6 +352,10 @@ out:
     printf("  Listening for events stopped (pid = %d, sid = %d)\n", pid, sid);
     fflush(stdout);
 #endif
+
+    // Close `fanotify` file descriptors.
+    close(guard.allowfd);
+    close(guard.denyfd);
 
     return errno ? EXIT_FAILURE : EXIT_SUCCESS;
 }

@@ -44,7 +44,7 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
     void(*logfn)(struct janusguard_event *));
 void add_fanotify_mark(const struct janusguard *guard, const int fd, const char *path);
 int start_fanotify_guard(char *name, int pid, int sid, char *nodename, char *podname, unsigned int allowc, char *allow[],
-    unsigned int denyc, char *deny[], uint32_t mask, int processevtfd, char *tags, char *logformat,
+    unsigned int denyc, char *deny[], uint32_t mask, bool only_dir, int processevtfd, char *tags, char *logformat,
     void (*logfn)(struct janusguard_event *));
 void send_guard_kill_signal(int processfd);
 

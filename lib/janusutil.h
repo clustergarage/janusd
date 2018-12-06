@@ -26,6 +26,7 @@
 #define __JANUS_UTIL__
 
 #include <limits.h>
+#include <stdbool.h>
 #include <stdint.h>
 #include <unistd.h>
 
@@ -47,6 +48,7 @@ struct janusguard {
     unsigned int mnt_flags;                 // Optional mount flag for `fanotify_mark`.
     uint32_t event_mask;                    // Event mask for `fanotify_mark`.
     uint64_t mnt_mask;                      // Optional mount mask for `fanotify_mark`.
+    bool only_dir;                          // Flag to watch only directories.
     int processevtfd;                       // Anonymous pipe to send watch kill signal.
     const char *tags;                       // Custom tags for printing JanusGuard event.
     const char *log_format;                 // Custom logging format for printing JanusGuard event.

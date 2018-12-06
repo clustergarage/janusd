@@ -292,7 +292,7 @@ void JanusdImpl::createFanotifyGuard(const std::string guardName, const std::str
     eventProcessfds->Add(processfd);
 
     std::packaged_task<int(char *, int, int, char *, char *, unsigned int, char **, unsigned int, char **, uint32_t,
-        int, char *, char *, void(struct janusguard_event *))> task(start_fanotify_guard);
+        bool, int, char *, char *, void(struct janusguard_event *))> task(start_fanotify_guard);
     std::shared_future<int> result(task.get_future());
 
     std::thread taskThread(std::move(task),
@@ -303,6 +303,7 @@ void JanusdImpl::createFanotifyGuard(const std::string guardName, const std::str
         subject->allow_size(), getPathArrayFromVector(pid, subject->allow()),
         subject->deny_size(), getPathArrayFromVector(pid, subject->deny()),
         getEventMaskFromSubject(subject),
+        subject->onlydir(),
         processfd,
         convertStringToCString(getTagListFromSubject(subject)),
         convertStringToCString(logFormat),
