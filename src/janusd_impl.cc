@@ -96,8 +96,9 @@ grpc::Status JanusdImpl::CreateGuard(grpc::ServerContext *context [[maybe_unused
         for_each(request->subject().cbegin(), request->subject().cend(), [&](const janus::JanusGuardSubject subject) {
             // @TODO: Check if any guards are started, if not, don't add to
             // response.
-            createFanotifyGuard(response->nodename(), response->podname(), std::make_shared<janus::JanusGuardSubject>(subject),
-                pid, i, response->mutable_processeventfd());
+            createFanotifyGuard(request->name(), response->nodename(), response->podname(),
+				std::make_shared<janus::JanusGuardSubject>(subject), pid, i,
+				response->mutable_processeventfd(), request->logformat());
             ++i;
         });
         response->add_pid(pid);
@@ -228,6 +229,23 @@ char **JanusdImpl::getPathArrayFromVector(const int pid, const google::protobuf:
 }
 
 /**
+ * Returns a comma-separated list of key=value pairs for a subject tag map.
+ *
+ * @param subject
+ * @return
+ */
+std::string JanusdImpl::getTagListFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject) {
+    std::string tags;
+    for (auto tag : subject->tags()) {
+        if (!tags.empty()) {
+            tags += ",";
+        }
+        tags += tag.first + "=" + tag.second;
+    }
+    return tags;
+}
+
+/**
  * Returns a bitwise-OR combined event mask given a subject. The subject->event
  * can be an array of strings that match directly to an `fanotify` event.
  *
@@ -253,16 +271,18 @@ uint32_t JanusdImpl::getEventMaskFromSubject(std::shared_ptr<janus::JanusGuardSu
  * to specify removing the anonymous pipe in the case of an error returned by
  * the janusnotify poller.
  *
+ * @param guardName
  * @param nodeName
  * @param podName
  * @param subject
  * @param pid
  * @param sid
  * @param eventProcessfds
+ * @param logFormat
  */
-void JanusdImpl::createFanotifyGuard(const std::string nodeName, const std::string podName,
+void JanusdImpl::createFanotifyGuard(const std::string guardName, const std::string nodeName, const std::string podName,
     std::shared_ptr<janus::JanusGuardSubject> subject, const int pid, const int sid,
-    google::protobuf::RepeatedField<google::protobuf::int32> *eventProcessfds) {
+    google::protobuf::RepeatedField<google::protobuf::int32> *eventProcessfds, const std::string logFormat) {
 
     // Create anonymous pipe to communicate with `fanotify` guard.
     const int processfd = eventfd(0, EFD_CLOEXEC);
@@ -271,20 +291,22 @@ void JanusdImpl::createFanotifyGuard(const std::string nodeName, const std::stri
     }
     eventProcessfds->Add(processfd);
 
-    std::packaged_task<int(int, int, char *, char *, int, char **, int, char **, uint32_t, int,
-        void(struct janusguard_event *))> task(start_fanotify_guard);
+    std::packaged_task<int(char *, int, int, char *, char *, unsigned int, char **, unsigned int, char **, uint32_t,
+        int, char *, char *, void(struct janusguard_event *))> task(start_fanotify_guard);
     std::shared_future<int> result(task.get_future());
 
-    // Copy nodename and podname from `std::string` to a usable `char *` in C.
-    char *nodename = new char[nodeName.size() + 1];
-    strcpy(nodename, nodeName.c_str());
-    char *podname = new char[nodeName.size() + 1];
-    strcpy(podname, podName.c_str());
-
-    std::thread taskThread(std::move(task), pid, sid, nodename, podname,
+    std::thread taskThread(std::move(task),
+		convertStringToCString(guardName),
+		pid, sid,
+		convertStringToCString(nodeName),
+		convertStringToCString(podName),
         subject->allow_size(), getPathArrayFromVector(pid, subject->allow()),
         subject->deny_size(), getPathArrayFromVector(pid, subject->deny()),
-        getEventMaskFromSubject(subject), processfd, logJanusGuardEvent);
+        getEventMaskFromSubject(subject),
+		processfd,
+		convertStringToCString(getTagListFromSubject(subject)),
+		convertStringToCString(logFormat),
+		logJanusGuardEvent);
     // Start as daemon process.
     taskThread.detach();
 
@@ -341,30 +363,41 @@ void JanusdImpl::eraseEventProcessfd(google::protobuf::RepeatedField<google::pro
 #ifdef __cplusplus
 extern "C" {
 #endif
-    void logJanusGuardEvent(struct janusguard_event *jgevent) {
-        std::string DEFAULT_FORMAT = "[{allow}] {event} {ftype} '{path}' ({pod}:{node}) {tags}";
+void logJanusGuardEvent(struct janusguard_event *jgevent) {
+	/**
+	 * Default logging format.
+     *
+     * @specifier pod      Name of the pod.
+     * @specifier node     Name of the node.
+     * @specifier allow    Evaluates to "allow" or "deny".
+	 * @specifier event    `fanotify` event that was observed.
+     * @specifier path     Name of the directory+file path.
+     * @specifier ftype    Evaluates to "file" or "directory".
+     * @specifier tags     List of custom tags in key=value comma-separated list.
+	 */
+    const std::string kDefaultFormat = "[{allow}] {event} {ftype} '{path}' ({pod}:{node}) {tags}";
 
-        std::regex procRegex("/proc/[0-9]+/root");
+    std::regex procRegex("/proc/[0-9]+/root");
 
-        std::string maskStr;
-        if (jgevent->event_mask & FAN_ACCESS_PERM)    maskStr = "ACCESS_PERM";
-        else if (jgevent->event_mask & FAN_OPEN_PERM) maskStr = "OPEN_PERM";
+    std::string maskStr;
+    if (jgevent->event_mask & FAN_ACCESS_PERM)    maskStr = "ACCESS_PERM";
+    else if (jgevent->event_mask & FAN_OPEN_PERM) maskStr = "OPEN_PERM";
 
-        fmt::memory_buffer out;
-        try {
-            fmt::format_to(out, /*!logFormat.empty() ? logFormat : */DEFAULT_FORMAT,
-                fmt::arg("allow", jgevent->allow ? "ALLOW" : "DENY"),
-                fmt::arg("event", maskStr),
-                fmt::arg("ftype", jgevent->is_dir ? "directory" : "file"),
-                fmt::arg("path", std::regex_replace(jgevent->path_name, procRegex, "")),
-                fmt::arg("pod", jgevent->pod_name),
-                fmt::arg("node", jgevent->node_name),
-                fmt::arg("tags", /*guard != nullptr ? getTagListFromSubject(guard) : */""));
-            LOG(INFO) << fmt::to_string(out);
-        } catch(const std::exception &e) {
-            LOG(WARNING) << "Malformed JanusGuard `.spec.logFormat`: \"" << e.what() << "\"";
-        }
+    fmt::memory_buffer out;
+    try {
+        fmt::format_to(out, *jgevent->guard->log_format ? std::string(jgevent->guard->log_format) : kDefaultFormat,
+            fmt::arg("allow", jgevent->allow ? "ALLOW" : "DENY"),
+            fmt::arg("event", maskStr),
+            fmt::arg("ftype", jgevent->is_dir ? "directory" : "file"),
+            fmt::arg("path", std::regex_replace(jgevent->path_name, procRegex, "")),
+            fmt::arg("pod", jgevent->guard->pod_name),
+            fmt::arg("node", jgevent->guard->node_name),
+            fmt::arg("tags", *jgevent->guard->tags ? jgevent->guard->tags : ""));
+        LOG(INFO) << fmt::to_string(out);
+    } catch(const std::exception &e) {
+        LOG(WARNING) << "Malformed JanusGuard `.spec.logFormat`: \"" << e.what() << "\"";
     }
+}
 #ifdef __cplusplus
 }; // extern "C"
 #endif

@@ -34,18 +34,22 @@
 #endif
 
 struct janusguard {
-    int pid, sid;          // PID, Subject ID.
-    char *nodename, *podname;
-    int allowfd, denyfd;   // `fanotify` file descriptor.
-    int *wd;               // Array of watch descriptors (-1 if slot unused).
-    unsigned int allowc;   // Cached path count, including recursive traversal.
-    char **allow;          // Cached path name(s), including recursive traversal.
-    unsigned int denyc;    // Ignore path pattern count.
-    char **deny;           // Ignore path patterns.
-    uint32_t event_mask;   // Event mask for `fanotify`.
-    unsigned int flags, evtflags, mntflags;
-    uint64_t mntmask;
-    int processevtfd;      // Anonymous pipe to send watch kill signal.
+    const char *name;                       // Name of JanusGuard.
+    int pid, sid;                           // PID, Subject ID.
+    const char *node_name, *pod_name;       // Name of node, pod in which process is running.
+    int allowfd, denyfd;                    // `fanotify` file descriptor.
+    int *wd;                                // Array of watch descriptors (-1 if slot unused).
+    unsigned int allowc;                    // Cached path count, including recursive traversal.
+    char **allow;                           // Cached path name(s), including recursive traversal.
+    unsigned int denyc;                     // Ignore path pattern count.
+    char **deny;                            // Ignore path patterns.
+    unsigned int flags, evt_flags;          // Flags, event flags for `fanotify_init`.
+    unsigned int mnt_flags;                 // Optional mount flag for `fanotify_mark`.
+    uint32_t event_mask;                    // Event mask for `fanotify_mark`.
+    uint64_t mnt_mask;                      // Optional mount mask for `fanotify_mark`.
+    int processevtfd;                       // Anonymous pipe to send watch kill signal.
+    const char *tags;                       // Custom tags for printing JanusGuard event.
+    const char *log_format;                 // Custom logging format for printing JanusGuard event.
 };
 
 void get_ppid(const pid_t pid, pid_t *ppid);

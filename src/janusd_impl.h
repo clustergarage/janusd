@@ -45,9 +45,11 @@ private:
     std::vector<int> getPidsFromRequest(std::shared_ptr<janus::JanusdConfig> request);
     std::shared_ptr<janus::JanusdHandle> findJanusdGuardByPids(std::string nodeName, std::vector<int> pids);
     char **getPathArrayFromVector(int pid, const google::protobuf::RepeatedPtrField<std::string> &vec);
+	std::string getTagListFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject);
     uint32_t getEventMaskFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject);
-    void createFanotifyGuard(std::string nodeName, std::string podName, std::shared_ptr<janus::JanusGuardSubject> subject,
-        int pid, int sid, google::protobuf::RepeatedField<google::protobuf::int32> *procFds);
+    void createFanotifyGuard(std::string guardName, std::string nodeName, std::string podName,
+		std::shared_ptr<janus::JanusGuardSubject> subject, int pid, int sid,
+		google::protobuf::RepeatedField<google::protobuf::int32> *procFds, std::string logFormat);
     void sendKillSignalToGuard(std::shared_ptr<janus::JanusdHandle> guard);
     void eraseEventProcessfd(google::protobuf::RepeatedField<google::protobuf::int32> *eventProcessfds, int processfd);
 
@@ -62,6 +64,19 @@ private:
         clustergarage::container::Util::eraseSubstr(containerId, prefix + "://");
     }
 
+    /**
+     * Helper function to convert `str` as type `std::string` to a usable
+     * C-style `char *`.
+     *
+     * @param str
+     * @return
+     */
+    inline char *convertStringToCString(const std::string &str) const {
+        char *cstr = new char[str.size() + 1];
+        strncpy(cstr, str.c_str(), str.size() + 1);
+        return cstr;
+    }
+
     std::vector<std::shared_ptr<janus::JanusdHandle>> guards_;
     std::condition_variable cv_;
     std::mutex mux_;
@@ -71,7 +86,7 @@ private:
 #ifdef __cplusplus
 extern "C" {
 #endif
-    void logJanusGuardEvent(struct janusguard_event *);
+void logJanusGuardEvent(struct janusguard_event *);
 #ifdef __cplusplus
 }; // extern "C"
 #endif

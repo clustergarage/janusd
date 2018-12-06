@@ -45,7 +45,7 @@
  * @param fd
  * @param allow
  */
-static void process_fanotify_events(const struct janusguard *guard, const int fd, const bool allow,
+static void process_fanotify_events(struct janusguard *guard, const int fd, const bool allow,
     void(*logfn)(struct janusguard_event *)) {
 
     const struct fanotify_event_metadata *metadata;
@@ -139,10 +139,7 @@ static void process_fanotify_events(const struct janusguard *guard, const int fd
                     }
 
                     struct janusguard_event jgevent = {
-                        .pid = guard->pid,
-                        .sid = guard->sid,
-                        .node_name = guard->nodename,
-                        .pod_name = guard->podname,
+                        .guard = guard,
                         .event_mask = metadata->mask,
                         .is_dir = (bool)(metadata->mask & FAN_ONDIR),
                         .allow = allow
@@ -163,7 +160,7 @@ static void process_fanotify_events(const struct janusguard *guard, const int fd
                     logfn(&jgevent);
 
 #if DEBUG
-                    printf("  pid = %d\n", pid);
+                    printf("  pid = %d\n", guard->pid);
                     printf("  callee = %d; ppid = %d\n", metadata->pid, ppid);
                     fflush(stdout);
 #endif
@@ -194,7 +191,7 @@ void add_fanotify_mark(const struct janusguard *guard, const int fd, const char 
     printf("    add mark: path = %s\n", path);
     fflush(stdout);
 #endif
-    if (fanotify_mark(fd, FAN_MARK_ADD | guard->mntflags, guard->event_mask | guard->mntmask,
+    if (fanotify_mark(fd, FAN_MARK_ADD | guard->mnt_flags, guard->event_mask | guard->mnt_mask,
         AT_FDCWD, path) == EOF) {
 #if DEBUG
         perror("fanotify_mark");
@@ -222,8 +219,9 @@ void add_fanotify_mark(const struct janusguard *guard, const int fd, const char 
  * @param logfn
  * @return
  */
-int start_fanotify_guard(int pid, int sid, char *nodename, char *podname, int allowc, char *allow[],
-    int denyc, char *deny[], uint32_t mask, int processevtfd, void (*logfn)(struct janusguard_event *)) {
+int start_fanotify_guard(char *name, const int pid, const int sid, char *nodename, char *podname, unsigned int allowc, char *allow[],
+    unsigned int denyc, char *deny[], uint32_t mask, int processevtfd, char *tags, char *logformat,
+    void (*logfn)(struct janusguard_event *)) {
 
     int pollc;
     nfds_t nfds;
@@ -233,23 +231,27 @@ int start_fanotify_guard(int pid, int sid, char *nodename, char *podname, int al
     sigaddset(&sigmask, SIGCHLD);
 
     struct janusguard guard = (struct janusguard){
+        .name = name,
         .pid = pid,
         .sid = sid,
-        .nodename = nodename,
-        .podname = podname,
+        .node_name = nodename,
+        .pod_name = podname,
         .allowc = allowc,
         .allow = allow,
         .denyc = denyc,
         .deny = deny,
         .event_mask = mask,
-        .processevtfd = processevtfd
+        .processevtfd = processevtfd,
+        .tags = tags,
+        .log_format = logformat
     };
 
+    // @TODO: make configurable
     guard.flags = FAN_CLOEXEC | FAN_NONBLOCK | FAN_UNLIMITED_QUEUE |
         FAN_UNLIMITED_MARKS | FAN_CLASS_CONTENT; // FAN_CLASS_PRE_CONTENT
-    guard.evtflags = O_RDONLY | O_LARGEFILE | O_NONBLOCK;
-    guard.mntflags = 0; // FAN_MARK_MOUNT
-    guard.mntmask = FAN_EVENT_ON_CHILD | FAN_ONDIR;
+    guard.evt_flags = O_RDONLY | O_LARGEFILE | O_NONBLOCK;
+    guard.mnt_flags = 0; // FAN_MARK_MOUNT
+    guard.mnt_mask = FAN_EVENT_ON_CHILD | FAN_ONDIR;
 
 #if DEBUG
     printf("  Listening for events (pid = %d, sid = %d)\n", pid, sid);
@@ -258,7 +260,7 @@ int start_fanotify_guard(int pid, int sid, char *nodename, char *podname, int al
 
     // Create the file descriptor for accessing the fanotify API for ALLOW
     // events.
-    guard.allowfd = fanotify_init(guard.flags, guard.evtflags);
+    guard.allowfd = fanotify_init(guard.flags, guard.evt_flags);
     if (guard.allowfd == EOF) {
 #if DEBUG
         perror("fanotify_init");
@@ -266,7 +268,7 @@ int start_fanotify_guard(int pid, int sid, char *nodename, char *podname, int al
     }
     // Create the file descriptor for accessing the fanotify API for DENY
     // events.
-    guard.denyfd = fanotify_init(guard.flags, guard.evtflags);
+    guard.denyfd = fanotify_init(guard.flags, guard.evt_flags);
     if (guard.denyfd == EOF) {
 #if DEBUG
         perror("fanotify_init");
