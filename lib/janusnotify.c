@@ -34,6 +34,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/fanotify.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include "janusnotify.h"
@@ -51,9 +52,10 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
     const struct fanotify_event_metadata *metadata;
     struct fanotify_event_metadata buf[200];
     struct fanotify_response response;
-    char procfdpath[PATH_MAX];
+    char procpath[PATH_MAX], procfdpath[PATH_MAX];
     ssize_t len, pathlen;
     struct sigaction sa;
+    struct stat sb;
 
     void alarm_handler(int sig) {
         // Just interrupt `read`.
@@ -127,9 +129,9 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
                     // whitelist of allowed callee processes?
                     if (metadata->pid == guard->pid ||
                         ppid == guard->pid) {
-                        response.response = FAN_ALLOW;
+                        response.response = FAN_ALLOW; // FAN_AUDIT
                     } else {
-                        response.response = allow ? FAN_ALLOW : FAN_DENY;
+                        response.response = allow ? FAN_ALLOW : FAN_DENY; // FAN_AUDIT
                     }
                     ssize_t writelen = sizeof(struct fanotify_response);
                     if (write(fd, &response, writelen) != writelen) {
@@ -141,7 +143,6 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
                     struct janusguard_event jgevent = {
                         .guard = guard,
                         .event_mask = metadata->mask,
-                        .is_dir = (bool)(metadata->mask & FAN_ONDIR),
                         .allow = allow
                     };
 
@@ -152,9 +153,20 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
 #if DEBUG
                         perror("readlink");
 #endif
-                        goto closemetafd;
+                        goto out_closemetafd;
                     }
                     jgevent.path_name[pathlen] = '\0';
+
+                    // `stat` the full path on procfs to determine if it is a
+                    // directory or regular file.
+                    snprintf(procpath, sizeof(procpath), "/proc/%d/root%s", metadata->pid, jgevent.path_name);
+                    if (lstat(procpath, &sb) == EOF) {
+#if DEBUG
+                        fprintf(stderr, "`lstat` failed on '%s'\n", path);
+                        perror("lstat");
+#endif
+                    }
+                    jgevent.is_dir = S_ISDIR(sb.st_mode);
 
                     // Call JanusdImpl log function passed into this guard.
                     logfn(&jgevent);
@@ -166,7 +178,7 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
 #endif
                 }
 
-closemetafd:
+out_closemetafd:
                 // Close the file descriptor of the event.
                 close(metadata->fd);
             }
@@ -248,10 +260,10 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
 
     // @TODO: make configurable
     guard.flags = FAN_CLOEXEC | FAN_NONBLOCK | FAN_UNLIMITED_QUEUE |
-        FAN_UNLIMITED_MARKS | FAN_CLASS_CONTENT; // FAN_CLASS_PRE_CONTENT
-    guard.evt_flags = O_RDONLY | O_LARGEFILE | O_NONBLOCK;
+        FAN_UNLIMITED_MARKS | FAN_CLASS_CONTENT; // FAN_ENABLE_AUDIT | FAN_CLASS_PRE_CONTENT
+    guard.evt_flags = O_RDONLY | O_NONBLOCK | O_LARGEFILE;
     guard.mnt_flags = 0; // FAN_MARK_MOUNT
-    guard.mnt_mask = FAN_EVENT_ON_CHILD | FAN_ONDIR;
+    guard.mnt_mask = FAN_ONDIR | FAN_EVENT_ON_CHILD;
 
 #if DEBUG
     printf("  Listening for events (pid = %d, sid = %d)\n", pid, sid);
@@ -305,7 +317,7 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
 #if DEBUG
             perror("ppoll");
 #endif
-            goto exit;
+            goto out;
         }
 
         if (pollc > 0) {
@@ -330,7 +342,7 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
         }
     }
 
-exit:
+out:
 #if DEBUG
     printf("  Listening for events stopped (pid = %d, sid = %d)\n", pid, sid);
     fflush(stdout);

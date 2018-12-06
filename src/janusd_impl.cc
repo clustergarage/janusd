@@ -97,8 +97,8 @@ grpc::Status JanusdImpl::CreateGuard(grpc::ServerContext *context [[maybe_unused
             // @TODO: Check if any guards are started, if not, don't add to
             // response.
             createFanotifyGuard(request->name(), response->nodename(), response->podname(),
-				std::make_shared<janus::JanusGuardSubject>(subject), pid, i,
-				response->mutable_processeventfd(), request->logformat());
+                std::make_shared<janus::JanusGuardSubject>(subject), pid, i,
+                response->mutable_processeventfd(), request->logformat());
             ++i;
         });
         response->add_pid(pid);
@@ -256,7 +256,7 @@ uint32_t JanusdImpl::getEventMaskFromSubject(std::shared_ptr<janus::JanusGuardSu
     uint32_t mask = 0;
     std::for_each(subject->event().cbegin(), subject->event().cend(), [&](std::string event) {
         const char *evt = event.c_str();
-        if (strcmp(evt, "all") == 0)         mask |= FAN_ACCESS_PERM | FAN_OPEN_PERM;
+        if (strcmp(evt, "all") == 0)         mask |= FAN_ALL_PERM_EVENTS;
         else if (strcmp(evt, "access") == 0) mask |= FAN_ACCESS_PERM;
         else if (strcmp(evt, "open") == 0)   mask |= FAN_OPEN_PERM;
     });
@@ -296,17 +296,17 @@ void JanusdImpl::createFanotifyGuard(const std::string guardName, const std::str
     std::shared_future<int> result(task.get_future());
 
     std::thread taskThread(std::move(task),
-		convertStringToCString(guardName),
-		pid, sid,
-		convertStringToCString(nodeName),
-		convertStringToCString(podName),
+        convertStringToCString(guardName),
+        pid, sid,
+        convertStringToCString(nodeName),
+        convertStringToCString(podName),
         subject->allow_size(), getPathArrayFromVector(pid, subject->allow()),
         subject->deny_size(), getPathArrayFromVector(pid, subject->deny()),
         getEventMaskFromSubject(subject),
-		processfd,
-		convertStringToCString(getTagListFromSubject(subject)),
-		convertStringToCString(logFormat),
-		logJanusGuardEvent);
+        processfd,
+        convertStringToCString(getTagListFromSubject(subject)),
+        convertStringToCString(logFormat),
+        logJanusGuardEvent);
     // Start as daemon process.
     taskThread.detach();
 
@@ -364,18 +364,18 @@ void JanusdImpl::eraseEventProcessfd(google::protobuf::RepeatedField<google::pro
 extern "C" {
 #endif
 void logJanusGuardEvent(struct janusguard_event *jgevent) {
-	/**
-	 * Default logging format.
+    /**
+     * Default logging format.
      *
      * @specifier pod      Name of the pod.
      * @specifier node     Name of the node.
      * @specifier allow    Evaluates to "allow" or "deny".
-	 * @specifier event    `fanotify` event that was observed.
+     * @specifier event    `fanotify` event that was observed.
      * @specifier path     Name of the directory+file path.
      * @specifier ftype    Evaluates to "file" or "directory".
      * @specifier tags     List of custom tags in key=value comma-separated list.
-	 */
-    const std::string kDefaultFormat = "[{allow}] {event} {ftype} '{path}' ({pod}:{node}) {tags}";
+     */
+    const std::string kDefaultFormat = "<{allow}> {event} {ftype} '{path}' ({pod}:{node}) {tags}";
 
     std::regex procRegex("/proc/[0-9]+/root");
 

@@ -45,11 +45,11 @@ private:
     std::vector<int> getPidsFromRequest(std::shared_ptr<janus::JanusdConfig> request);
     std::shared_ptr<janus::JanusdHandle> findJanusdGuardByPids(std::string nodeName, std::vector<int> pids);
     char **getPathArrayFromVector(int pid, const google::protobuf::RepeatedPtrField<std::string> &vec);
-	std::string getTagListFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject);
+    std::string getTagListFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject);
     uint32_t getEventMaskFromSubject(std::shared_ptr<janus::JanusGuardSubject> subject);
     void createFanotifyGuard(std::string guardName, std::string nodeName, std::string podName,
-		std::shared_ptr<janus::JanusGuardSubject> subject, int pid, int sid,
-		google::protobuf::RepeatedField<google::protobuf::int32> *procFds, std::string logFormat);
+        std::shared_ptr<janus::JanusGuardSubject> subject, int pid, int sid,
+        google::protobuf::RepeatedField<google::protobuf::int32> *procFds, std::string logFormat);
     void sendKillSignalToGuard(std::shared_ptr<janus::JanusdHandle> guard);
     void eraseEventProcessfd(google::protobuf::RepeatedField<google::protobuf::int32> *eventProcessfds, int processfd);
 
