@@ -35,12 +35,12 @@
 
 struct janusguard_event {
     struct janusguard *guard;
-    int32_t event_mask;
+    uint64_t event_mask;
     char path_name[PATH_MAX];
     bool is_dir, allow;
 };
 
-static void process_fanotify_events(struct janusguard *guard, const int fd, const bool allow,
+static void process_fanotify_events(struct janusguard *guard, const int fd, bool allow,
     void(*logfn)(struct janusguard_event *));
 void add_fanotify_mark(const struct janusguard *guard, const int fd, const char *path);
 int start_fanotify_guard(char *name, int pid, int sid, char *nodename, char *podname, unsigned int allowc, char *allow[],

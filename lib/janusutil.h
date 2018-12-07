@@ -39,7 +39,6 @@ struct janusguard {
     int pid, sid;                           // PID, Subject ID.
     const char *node_name, *pod_name;       // Name of node, pod in which process is running.
     int allowfd, denyfd;                    // `fanotify` file descriptor.
-    int *wd;                                // Array of watch descriptors (-1 if slot unused).
     unsigned int allowc;                    // Cached path count, including recursive traversal.
     char **allow;                           // Cached path name(s), including recursive traversal.
     unsigned int denyc;                     // Ignore path pattern count.

@@ -372,13 +372,13 @@ void logJanusGuardEvent(struct janusguard_event *jgevent) {
      *
      * @specifier pod      Name of the pod.
      * @specifier node     Name of the node.
-     * @specifier allow    Evaluates to "allow" or "deny".
+     * @specifier response Evaluates to "allow" or "deny".
      * @specifier event    `fanotify` event that was observed.
      * @specifier path     Name of the directory+file path.
      * @specifier ftype    Evaluates to "file" or "directory".
      * @specifier tags     List of custom tags in key=value comma-separated list.
      */
-    const std::string kDefaultFormat = "<{allow}> {event} {ftype} '{path}' ({pod}:{node}) {tags}";
+    const std::string kDefaultFormat = "<{response}> {event} {ftype} '{path}' ({pod}:{node}) {tags}";
 
     std::regex procRegex("/proc/[0-9]+/root");
 
@@ -389,7 +389,7 @@ void logJanusGuardEvent(struct janusguard_event *jgevent) {
     fmt::memory_buffer out;
     try {
         fmt::format_to(out, *jgevent->guard->log_format ? std::string(jgevent->guard->log_format) : kDefaultFormat,
-            fmt::arg("allow", jgevent->allow ? "ALLOW" : "DENY"),
+            fmt::arg("response", jgevent->allow ? "ALLOW" : "DENY"),
             fmt::arg("event", maskStr),
             fmt::arg("ftype", jgevent->is_dir ? "directory" : "file"),
             fmt::arg("path", std::regex_replace(jgevent->path_name, procRegex, "")),

@@ -43,10 +43,12 @@
 /**
  * Read all available `fanotify` events from the file descriptor `fd`.
  *
+ * @param guard
  * @param fd
  * @param allow
+ * @param logfn
  */
-static void process_fanotify_events(struct janusguard *guard, const int fd, const bool allow,
+static void process_fanotify_events(struct janusguard *guard, const int fd, bool allow,
     void(*logfn)(struct janusguard_event *)) {
 
     const struct fanotify_event_metadata *metadata;
@@ -128,6 +130,8 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, cons
                         (metadata->pid == guard->pid ||
                         ppid == guard->pid)) {
                         response.response = FAN_ALLOW;
+                        // Override allow flag for logging purposes.
+                        allow = true;
                     } else {
                         response.response = allow ? FAN_ALLOW : FAN_DENY;
                     }
@@ -193,11 +197,9 @@ out_closemetafd:
 /**
  * Add `path` to the guard list of the `fanotify` file descriptor.
  *
+ * @param guard
  * @param fd
  * @param path
- * @param mntflags
- * @param mask
- * @param mntmask
  */
 void add_fanotify_mark(const struct janusguard *guard, const int fd, const char *path) {
 #if DEBUG
@@ -219,6 +221,7 @@ void add_fanotify_mark(const struct janusguard *guard, const int fd, const char 
  * the given filesystem objects for allow/deny events, and loops infinitely
  * waiting for new `fanotify` events until it receives a kill signal.
  *
+ * @param name
  * @param pid
  * @param sid
  * @param nodename
@@ -228,8 +231,12 @@ void add_fanotify_mark(const struct janusguard *guard, const int fd, const char 
  * @param denyc
  * @param deny
  * @param mask
- * @param only_dir
+ * @param onlydir
+ * @param autoallowowner
+ * @param audit
  * @param processevtfd
+ * @param tags
+ * @param logformat
  * @param logfn
  * @return
  */
@@ -263,7 +270,6 @@ int start_fanotify_guard(char *name, const int pid, const int sid, char *nodenam
         .log_format = logformat
     };
 
-    // @TODO: make configurable
     guard.flags = FAN_CLOEXEC | FAN_NONBLOCK | FAN_UNLIMITED_QUEUE |
         FAN_UNLIMITED_MARKS | FAN_CLASS_CONTENT; // | FAN_CLASS_PRE_CONTENT
     if (guard.audit) {
