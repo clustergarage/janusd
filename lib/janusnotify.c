@@ -41,6 +41,104 @@
 #include "janusutil.h"
 
 /**
+ * Process the next `fanotify` event in the buffer specified by `metadata`.
+ */
+static void process_next_fanotify_metadata(struct janusguard *guard, const struct fanotify_event_metadata *metadata,
+    const int fd, bool allow, void (*logfn)(struct janusguard_event *)) {
+
+    struct fanotify_response response;
+    ssize_t pathlen, writelen;
+    char procpath[PATH_MAX + 16], procfdpath[PATH_MAX];
+    int ppid;
+    struct stat sb;
+
+    // Check that run-time and compile-time structures match.
+    if (metadata->vers != FANOTIFY_METADATA_VERSION) {
+#if DEBUG
+        fprintf(stderr, "Mismatch of `fanotify` metadata versions.\n");
+#endif
+        exit(EXIT_FAILURE);
+    }
+
+    // `metadata->fd` contains either FAN_NOFD, indicating a queue overflow, or
+    // a file descriptor (a non-negative integer).
+    //
+    // @TODO: Don't simply ignore queue overflow event.
+    if (metadata->fd == FAN_NOFD) {
+#if DEBUG
+        printf("FAN_NOFD queue overflow occurred\n");
+        fflush(stdout);
+#endif
+    } else {
+        // Handle permission events.
+        if ((metadata->mask & FAN_OPEN_PERM) ||
+            (metadata->mask & FAN_ACCESS_PERM)) {
+            response.fd = metadata->fd;
+
+            // Get the callee's parent PID to compare with passed-in PID of
+            // this process being guarded.
+            get_ppid(metadata->pid, &ppid);
+
+            // If `pid` is the same as the callee `metadata->pid`, then always
+            // allow.
+            if (guard->auto_allow_owner &&
+                (metadata->pid == guard->pid ||
+                ppid == guard->pid)) {
+                response.response = FAN_ALLOW;
+                // Override allow flag for logging purposes.
+                allow = true;
+            } else {
+                response.response = allow ? FAN_ALLOW : FAN_DENY;
+            }
+            if (guard->audit) {
+                response.response |= FAN_AUDIT;
+            }
+            writelen = sizeof(struct fanotify_response);
+            if (write(fd, &response, writelen) != writelen) {
+#if DEBUG
+                perror("write");
+#endif
+            }
+
+            struct janusguard_event jgevent = {
+                .guard = guard,
+                .event_mask = metadata->mask,
+                .allow = allow
+            };
+
+            // Retrieve and print pathname of the accessed file.
+            snprintf(procfdpath, sizeof(procfdpath), "/proc/self/fd/%d", metadata->fd);
+            pathlen = readlink(procfdpath, jgevent.path_name, sizeof(jgevent.path_name) - 1);
+            if (pathlen == EOF) {
+#if DEBUG
+                perror("readlink");
+#endif
+                goto out_closemetafd;
+            }
+            jgevent.path_name[pathlen] = '\0';
+
+            // `stat` the full path on procfs to determine if it is a directory
+            // or regular file.
+            snprintf(procpath, sizeof(procpath), "/proc/%d/root%s", metadata->pid, jgevent.path_name);
+            if (lstat(procpath, &sb) == EOF) {
+#if DEBUG
+                fprintf(stderr, "`lstat` failed on '%s'\n", procpath);
+                perror("lstat");
+#endif
+            }
+            jgevent.is_dir = S_ISDIR(sb.st_mode);
+
+            // Call JanusdImpl log function passed into this guard.
+            logfn(&jgevent);
+        }
+
+out_closemetafd:
+        // Close the file descriptor of the event.
+        close(metadata->fd);
+    }
+}
+
+/**
  * Read all available `fanotify` events from the file descriptor `fd`.
  *
  * @param guard
@@ -52,18 +150,19 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, bool
     void(*logfn)(struct janusguard_event *)) {
 
     const struct fanotify_event_metadata *metadata;
-    struct fanotify_event_metadata buf[200];
-    struct fanotify_response response;
-    char procpath[PATH_MAX + 16], procfdpath[PATH_MAX];
-    ssize_t len, pathlen;
+    // Some systems cannot read integer variables if they are not properly
+    // aligned on other systems, incorrect alignment may decrease performance
+    // hence, the buffer used for reading from the `fanotify` file descriptor
+    // should have the same alignment as struct fanotify_event_metadata.
+    struct fanotify_event_metadata buf[FA_BUFFER_SIZE] __attribute__((aligned(__alignof__(struct fanotify_event_metadata))));
+    ssize_t len;
     struct sigaction sa;
-    struct stat sb;
 
     void alarm_handler(int sig) {
         // Just interrupt `read`.
         return;
     }
-    //SIGALRM handler is designed simply to interrupt `read`.
+    // SIGALRM handler is designed simply to interrupt `read`.
     sigemptyset(&sa.sa_mask);
     sa.sa_handler = alarm_handler;
     sa.sa_flags = 0;
@@ -74,123 +173,29 @@ static void process_fanotify_events(struct janusguard *guard, const int fd, bool
         return;
     }
 
-    // Loop while events can be read from fanotify file descriptor.
-    for (;;) {
-        // Read some events.
-        len = read(fd, (void *)&buf, sizeof(buf));
-        if (len == EOF) {
-            if (errno != EAGAIN) {
+    len = read(fd, (void *)&buf, FA_BUFFER_SIZE);
+    if (len == EOF) {
+        if (errno != EAGAIN) {
 #if DEBUG
-                perror("read");
+            perror("read");
 #endif
-            }
-            return;
-        } else if (len == 0) {
-#if DEBUG
-            fprintf(stderr, "`read` from `fanotify` fd returned 0!");
-#endif
-            return;
         }
-
-        // Point to the first event in the buffer.
-        metadata = buf;
-
-        // Loop over all events in the buffer.
-        while (FAN_EVENT_OK(metadata, len)) {
-            // Check that run-time and compile-time structures match.
-            if (metadata->vers != FANOTIFY_METADATA_VERSION) {
+        return;
+    } else if (len == 0) {
 #if DEBUG
-                fprintf(stderr, "Mismatch of `fanotify` metadata versions.\n");
+        fprintf(stderr, "`read` from `fanotify` fd returned 0!");
 #endif
-                exit(EXIT_FAILURE);
-            }
+        return;
+    }
 
-            // `metadata->fd` contains either FAN_NOFD, indicating a queue
-            // overflow, or a file descriptor (a non-negative integer).
-            // @TODO: Don't simply ignore queue overflow event.
-            if (metadata->fd == FAN_NOFD) {
-#if DEBUG
-                printf("FAN_NOFD queue overflow occurred\n");
-                fflush(stdout);
-#endif
-            } else {
-                // Handle permission events.
-                if ((metadata->mask & FAN_OPEN_PERM) ||
-                    (metadata->mask & FAN_ACCESS_PERM)) {
-                    response.fd = metadata->fd;
+    // Point to the first event in the buffer.
+    metadata = buf;
 
-                    // Get the callee's parent PID to compare with passed-in
-                    // PID of this process being guarded.
-                    int ppid;
-                    get_ppid(metadata->pid, &ppid);
-
-                    // If `pid` is the same as the callee `metadata->pid`, then
-                    // always allow.
-                    if (guard->auto_allow_owner &&
-                        (metadata->pid == guard->pid ||
-                        ppid == guard->pid)) {
-                        response.response = FAN_ALLOW;
-                        // Override allow flag for logging purposes.
-                        allow = true;
-                    } else {
-                        response.response = allow ? FAN_ALLOW : FAN_DENY;
-                    }
-                    if (guard->audit) {
-                        response.response |= FAN_AUDIT;
-                    }
-                    ssize_t writelen = sizeof(struct fanotify_response);
-                    if (write(fd, &response, writelen) != writelen) {
-#if DEBUG
-                        perror("write");
-#endif
-                    }
-
-                    struct janusguard_event jgevent = {
-                        .guard = guard,
-                        .event_mask = metadata->mask,
-                        .allow = allow
-                    };
-
-                    // Retrieve and print pathname of the accessed file.
-                    snprintf(procfdpath, sizeof(procfdpath), "/proc/self/fd/%d", metadata->fd);
-                    pathlen = readlink(procfdpath, jgevent.path_name, sizeof(jgevent.path_name) - 1);
-                    if (pathlen == EOF) {
-#if DEBUG
-                        perror("readlink");
-#endif
-                        goto out_closemetafd;
-                    }
-                    jgevent.path_name[pathlen] = '\0';
-
-                    // `stat` the full path on procfs to determine if it is a
-                    // directory or regular file.
-                    snprintf(procpath, sizeof(procpath), "/proc/%d/root%s", metadata->pid, jgevent.path_name);
-                    if (lstat(procpath, &sb) == EOF) {
-#if DEBUG
-                        fprintf(stderr, "`lstat` failed on '%s'\n", procpath);
-                        perror("lstat");
-#endif
-                    }
-                    jgevent.is_dir = S_ISDIR(sb.st_mode);
-
-                    // Call JanusdImpl log function passed into this guard.
-                    logfn(&jgevent);
-
-#if DEBUG
-                    printf("  pid = %d\n", guard->pid);
-                    printf("  callee = %d; ppid = %d\n", metadata->pid, ppid);
-                    fflush(stdout);
-#endif
-                }
-
-out_closemetafd:
-                // Close the file descriptor of the event.
-                close(metadata->fd);
-            }
-
-            // Advance to next event.
-            metadata = FAN_EVENT_NEXT(metadata, len);
-        }
+    // Loop over all events in the buffer.
+    while (FAN_EVENT_OK(metadata, len)) {
+        process_next_fanotify_metadata(guard, metadata, fd, allow, logfn);
+        // Advance to next event.
+        metadata = FAN_EVENT_NEXT(metadata, len);
     }
 }
 

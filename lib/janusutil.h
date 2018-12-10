@@ -34,25 +34,27 @@
 #define DEBUG 0
 #endif
 
+#define FA_BUFFER_SIZE (FAN_EVENT_METADATA_LEN + PATH_MAX + 1)
+
 struct janusguard {
-    const char *name;                       // Name of JanusGuard.
-    int pid, sid;                           // PID, Subject ID.
-    const char *node_name, *pod_name;       // Name of node, pod in which process is running.
-    int allowfd, denyfd;                    // `fanotify` file descriptor.
-    unsigned int allowc;                    // Cached path count, including recursive traversal.
-    char **allow;                           // Cached path name(s), including recursive traversal.
-    unsigned int denyc;                     // Ignore path pattern count.
-    char **deny;                            // Ignore path patterns.
-    unsigned int flags, evt_flags;          // Flags, event flags for `fanotify_init`.
-    unsigned int mnt_flags;                 // Optional mount flag for `fanotify_mark`.
-    uint32_t event_mask;                    // Event mask for `fanotify_mark`.
-    uint64_t mnt_mask;                      // Optional mount mask for `fanotify_mark`.
-    bool only_dir;                          // Flag to watch only directories.
-    bool auto_allow_owner;                  // Flag to automatically allow owner pid,ppid permission.
-    bool audit;                             // Flag to send events to kernel audit logs.
-    int processevtfd;                       // Anonymous pipe to send watch kill signal.
-    const char *tags;                       // Custom tags for printing JanusGuard event.
-    const char *log_format;                 // Custom logging format for printing JanusGuard event.
+    const char *name;                 // Name of JanusGuard.
+    int pid, sid;                     // PID, Subject ID.
+    const char *node_name, *pod_name; // Name of node, pod in which process is running.
+    int allowfd, denyfd;              // `fanotify` file descriptor.
+    unsigned int allowc;              // Cached path count, including recursive traversal.
+    char **allow;                     // Cached path name(s), including recursive traversal.
+    unsigned int denyc;               // Ignore path pattern count.
+    char **deny;                      // Ignore path patterns.
+    unsigned int flags, evt_flags;    // Flags, event flags for `fanotify_init`.
+    unsigned int mnt_flags;           // Optional mount flag for `fanotify_mark`.
+    uint32_t event_mask;              // Event mask for `fanotify_mark`.
+    uint64_t mnt_mask;                // Optional mount mask for `fanotify_mark`.
+    bool only_dir;                    // Flag to watch only directories.
+    bool auto_allow_owner;            // Flag to automatically allow owner pid,ppid permission.
+    bool audit;                       // Flag to send events to kernel audit logs.
+    int processevtfd;                 // Anonymous pipe to send watch kill signal.
+    const char *tags;                 // Custom tags for printing JanusGuard event.
+    const char *log_format;           // Custom logging format for printing JanusGuard event.
 };
 
 void get_ppid(const pid_t pid, pid_t *ppid);

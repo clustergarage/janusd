@@ -40,6 +40,8 @@ struct janusguard_event {
     bool is_dir, allow;
 };
 
+static void process_next_fanotify_metadata(struct janusguard *guard, const struct fanotify_event_metadata *metadata,
+    const int fd, bool allow, void (*logfn)(struct janusguard_event *));
 static void process_fanotify_events(struct janusguard *guard, const int fd, bool allow,
     void(*logfn)(struct janusguard_event *));
 void add_fanotify_mark(const struct janusguard *guard, const int fd, const char *path);
