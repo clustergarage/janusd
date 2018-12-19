@@ -1,6 +1,7 @@
 # janusd
 
 [![Docker Automated build](https://img.shields.io/docker/build/clustergarage/janusd.svg?style=flat-square)](https://hub.docker.com/r/clustergarage/janusd)
+[![Latest Janus release](https://img.shields.io/github/release/clustergarage/janus.svg?style=flat-square)](https://github.com/clustergarage/janus)
 
 This repository implements a daemon process responsible for maintaining a collection of `fanotify`-style listeners defined by the user to gain insights into when certain key events happen at the filesystem level of their container.
 
